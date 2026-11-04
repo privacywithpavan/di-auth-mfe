@@ -1,0 +1,88 @@
+/* Authentication-specific tokens. Shared shadcn tokens live in globals.css. */
+@theme inline {
+  --font-weight-emphasis: 750;
+  --text-field: 16px;
+  --text-body: 14px;
+  --text-help: 13px;
+  --text-caption: 11px;
+  --text-step-title: 18px;
+  --text-message: 12px;
+  --text-method-title: 15px;
+  --text-badge: 9px;
+
+  --color-primary-hover: #1d3047;
+
+  --color-canvas: #f5f1e8;
+  --color-content: #24384f;
+  --color-label: #2c415a;
+  --color-identity: #27394f;
+  --color-outline-foreground: #25384e;
+  --color-link: #006bd6;
+  --color-link-disabled: #86b5e7;
+  --color-divider: #d2d9e5;
+  --color-divider-label: #637186;
+  --color-divider-line: #7f8791;
+  --color-notice: #fff2f0;
+  --color-notice-border: #f0c7c2;
+  --color-notice-foreground: #812d29;
+  --color-success: #0b7a5a;
+  --color-success-track: #d9e7e1;
+  --color-verification-track: #dedede;
+  --color-verification-active: #3f578d;
+  --color-icon: #304a68;
+  --color-hint: #667891;
+  --color-password-hint: #647b92;
+  --color-info: #0075da;
+  --color-method-border: #71839a;
+  --color-method-focus: #b6c7f5;
+  --color-method-icon-background: #edf4f7;
+  --color-method-icon: #61758a;
+  --color-method-active-icon: #00509e;
+  --color-method-description: #596d86;
+  --color-method-active-description: #30455c;
+  --color-recommended-border: #66ac6b;
+  --color-recommended-foreground: #215f31;
+
+  --radius-notice: 9px;
+  --spacing-step: 20px;
+  --spacing-step-compact: 18px;
+  --spacing-control: 56px;
+  --spacing-control-compact: 48px;
+  --spacing-action: 46px;
+  --spacing-action-compact: 40px;
+  --spacing-field-gap: 7px;
+  --spacing-identifier-gap: 9px;
+  --spacing-status: 330px;
+  --spacing-verification: 220px;
+  --spacing-verification-spinner: 84px;
+  --shadow-input-focus: 0 0 0 3px rgba(89, 113, 182, 0.12);
+  --shadow-success: 0 0 0 10px #eff7f3;
+  --background-image-google-mark: conic-gradient(
+    from -45deg,
+    #4285f4 0 25%,
+    #34a853 0 50%,
+    #fbbc05 0 75%,
+    #ea4335 0
+  );
+
+  --animate-auth-enter: auth-enter 0.32s ease-out;
+  --animate-auth-spin: auth-spin 0.8s linear infinite;
+  --animate-verification-spin: auth-spin 1s linear infinite;
+  @keyframes auth-enter {
+    from {
+      opacity: 0;
+      transform: translateY(7px);
+    }
+  }
+  @keyframes auth-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+:root {
+  --background-method-selected:
+    linear-gradient(#eeedf7, #eeedf7) padding-box,
+    linear-gradient(125deg, #133cff, #6525e8 50%, #f01770) border-box;
+}
