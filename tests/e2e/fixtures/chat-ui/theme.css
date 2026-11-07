@@ -1,0 +1,34 @@
+@import "../../../../src/app/globals.css";
+@source "../../../../src/components/ui";
+
+@theme inline {
+  --font-geist-sans: ui-sans-serif, system-ui, sans-serif;
+  --color-chat-canvas: #86afd7;
+  --color-chat-surface: #f7f8ff;
+  --color-chat-edge: #5c46e0;
+  --color-chat-border: #92a9ec;
+  --color-chat-border-muted: #cbd5ee;
+  --color-chat-bubble: #5971b6;
+  --color-chat-bubble-hover: #4f67aa;
+  --color-chat-icon: #526fae;
+  --color-chat-spark: #7b21d3;
+  --color-chat-confirmed: #47b77d;
+  --color-chat-cancelled: #e8515b;
+  --background-image-chat-header: linear-gradient(
+    110deg,
+    #174bc8,
+    #6721d4 52%,
+    #d70e68
+  );
+  --background-image-chat-send: linear-gradient(135deg, #5424d5, #d40c65);
+  --shadow-chat-panel: 0 20px 70px rgb(44 64 103 / 18%);
+  --shadow-chat-composer: 0 8px 28px rgb(49 65 109 / 10%);
+  --shadow-chat-confirmed: 0 0 0 5px #e5f5ec;
+  --shadow-chat-cancelled: 0 0 0 5px #fde4e6;
+}
+
+:root {
+  --background-chat-prompt:
+    linear-gradient(white, white) padding-box,
+    linear-gradient(110deg, #1252e6, #db1680) border-box;
+}

@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "biome check",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:manual": "playwright test --config playwright.manual.config.ts",
     "format": "biome format --write"
   },
   "dependencies": {
@@ -30,13 +33,17 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
+    "@playwright/test": "^1.64.1",
+    "@simplewebauthn/server": "^14.0.3",
     "@tailwindcss/turbopack": "^4",
+    "@tailwindcss/vite": "^4.3.4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "^8.3.6"
   },
   "packageManager": "pnpm@12.15.0"
 }

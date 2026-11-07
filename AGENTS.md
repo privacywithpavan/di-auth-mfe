@@ -134,10 +134,11 @@
   and concurrency. Verify shared-cookie scope and cancellation/logout distinctions
   when those behaviors change. Use controlled REST fixtures and distinguish fixture
   results from native browser/WebAuthn verification.
-- No test runner, test scripts, or persistent suite is currently checked in. Do not
-  claim `pnpm test` or `pnpm test:production` exists. When adding tests, place them
-  under root-level `tests/`, beside `src/`, with independent REST fixtures. Temporary
-  verification harnesses are not repository-owned test coverage.
+- Keep automated tests under root-level `tests/`, beside `src/`. Run the
+  Playwright suite with `pnpm test:e2e`. Its embedding and REST fixtures are test
+  infrastructure. Keep their launch and authentication logic independent of
+  application code and other checkouts. The chat fixture can reuse shared theme
+  tokens and presentation primitives.
 - For documentation-only work, check commands, links, API names, settings, and
   consistency with source; a production build is not required just for Markdown.
 - Stop task-created servers/browser instances. Report what changed, validation,

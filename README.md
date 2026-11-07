@@ -214,6 +214,9 @@ authentication wrappers.
 | `pnpm start` | Run the default `next start` after building |
 | `pnpm lint` | Run Biome checks without fixing files |
 | `pnpm format` | Format the project; writes files |
+| `pnpm test:e2e` | Run the Chromium end-to-end suite headlessly |
+| `pnpm test:e2e:headed` | Watch the automated suite in Chromium |
+| `pnpm test:e2e:manual` | Open the chat and drive the sign-in flow yourself |
 
 Generate route types and check TypeScript explicitly:
 
@@ -229,10 +232,69 @@ pnpm exec biome check src/app/api/health/route.ts
 pnpm exec biome check --write src/app/api/health/route.ts
 ```
 
-There is currently no `typecheck`, `test`, or `test:production` package script and
-no checked-in automated test suite. Future tests should live under `tests/`, beside
-`src/`, and use controlled REST fixtures. Temporary verification harnesses are not
-a reusable repository test suite.
+### Browser tests
+
+```bash
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
+To drive the flow yourself, run `pnpm test:e2e:manual`. The chat waits for
+you to click **Sign in or create an account**. Enter
+`playwright@example.test`, password `FixturePassword1!`, and email
+verification code `381649` for password sign-in. MFA codes expire after
+60 seconds in the fixture. Each MFA resend replaces the previous code and
+increments the test value, starting with `381650` for the first resend.
+Registration email verification uses `381649`.
+
+To try a passkey, use a fresh test email such as `passkey-demo@example.test`
+and verify it with `381649`. Enter a name, leave Passkey selected, and continue
+to open the native prompt. Complete the account form, log out using the header
+arrow, then sign in again with the same email and passkey. Manual mode uses the
+browser's own authenticator prompt, which requires a platform authenticator or
+security key. The fixture stores account data in memory for the current run, so
+use a fresh test email in later runs if your device retains the old credential.
+Close the Chromium tab to end the preview.
+
+To watch Playwright drive the flow, run `pnpm test:e2e:headed`.
+Use Playwright Inspector to step through a single test at your own pace.
+
+```bash
+pnpm test:e2e:headed --debug -g 'signs in inline'
+```
+
+The suite starts its own Next.js development server, React chat fixture, and
+mock REST API. The fixture uses the shared Tailwind theme and shadcn primitives.
+Use Node.js 24 as above to run the fixture build. The suite uses loopback ports
+and in-memory context storage. Stop any Next.js development server running
+from this checkout before starting the suite.
+
+The chat loads the authentication iframe only after the sign-in button is
+clicked. The fixture checks server readiness over TCP so it does not warm up
+any MFE HTTP routes. Automated coverage includes the following flows.
+
+| Area | Scenarios |
+| --- | --- |
+| Password and MFA | Sign-in, incorrect-password recovery, invalid OTP, resend countdown, replacement-code rejection, expired-code rejection, and recovery |
+| Registration | Password and passkey enrollment, then sign-in with the created credential |
+| Passkeys | Virtual-authenticator enrollment and assertion verification, including rejection of an altered signature |
+| Context security | Missing or incorrect CSRF/Origin, another browser's context, missing browser-binding cookie, reused state, premature MFA, and unknown, expired, cancelled, or completed contexts |
+| Chat and session | Launch on click, blocked framing, direct-navigation rejection, cancellation, session recognition after reload, and logout |
+
+The recovery tests advance the browser clock for the resend countdown and use
+controls inside the mock to expire MFA challenges. Authentication context expiry
+is checked through the real BFF routes. These controls are local test fixtures.
+
+Run individual groups using the same headed or headless commands.
+
+```bash
+pnpm test:e2e recovery.spec.ts
+pnpm test:e2e context-security.spec.ts
+pnpm test:e2e:headed registration.spec.ts
+```
+
+The browser verifies cookie delivery between two loopback origins.
+Production parent-domain cookie behavior requires an HTTPS subdomain test.
 
 For authentication changes, verify a successful flow and relevant rejection paths,
 including CSRF/origin, browser binding, expiry, policy, replay, and concurrency.
@@ -279,8 +341,8 @@ uncached `next/font/google` font downloads may require network access.
 
 Google sign-in and password reset are visible placeholders and are not connected.
 The current protocol is shared-cookie inline authentication; OIDC/SAML callback
-completion is not implemented. OpenAPI documentation, a persistent test suite,
-Docker, and CI configuration are not currently included.
+completion is not implemented. OpenAPI documentation, Docker, and CI configuration
+are not currently included.
 
 Read [AGENTS.md](AGENTS.md) before changing architecture, security controls, or
 framework conventions. Update this README when commands, settings, interfaces,
