@@ -15,22 +15,38 @@ export async function POST(request: Request) {
     const input = schema.parse(await request.json());
     const response = await withContext(
       input.contextId,
-      ["OTP"],
+      ["OTP", "PASSKEY_OFFER"],
       async (context) => {
+        if (context.stage === "PASSKEY_OFFER")
+          return NextResponse.json({ nextAction: { type: "OFFER_PASSKEY" } });
         if (!context.challengeId)
           throw new SecurityError("CHALLENGE_REQUIRED", 409);
         const gateway = await iamClient.getContext(context.gatewayContextId);
-        if (gateway.status === "CONSUMED")
-          confirmGateway(context, gateway, "COMPLETE");
-        else if (gateway.nextAction !== "ISSUE_SESSION") {
-          const result = await iamClient.verifyMfa(
-            context.gatewayContextId,
-            { challengeId: context.challengeId, code: input.code },
-            `verify:${context.id}`,
-          );
-          confirmGateway(context, result, "ISSUE_SESSION");
-        } else confirmGateway(context, gateway, "ISSUE_SESSION");
+        const canOfferPasskey = context.policy.methods.includes("PASSKEY");
+        const result =
+          gateway.nextAction === "ENTER_OTP"
+            ? await iamClient.verifyMfa(
+                context.gatewayContextId,
+                {
+                  challengeId: context.challengeId,
+                  code: input.code,
+                  ...(canOfferPasskey ? { offerPasskey: true } : {}),
+                },
+                `verify:${context.id}`,
+              )
+            : gateway;
         context.confirmedFactors = ["pwd", "otp"];
+        if (canOfferPasskey && result.nextAction === "OFFER_PASSKEY") {
+          confirmGateway(context, result, "OFFER_PASSKEY");
+          context.stage = "PASSKEY_OFFER";
+          await contextStore.set(context);
+          return NextResponse.json({ nextAction: { type: "OFFER_PASSKEY" } });
+        }
+        confirmGateway(
+          context,
+          result,
+          result.status === "CONSUMED" ? "COMPLETE" : "ISSUE_SESSION",
+        );
         await contextStore.set(context);
         await issueSession(context);
         return NextResponse.json({

@@ -14,6 +14,7 @@ import { PasswordStep } from "@/features/login/components/password-step";
 import { OtpStep } from "@/features/mfa/components/otp-step";
 import { VerifyingStep } from "@/features/mfa/components/verifying-step";
 import type { ChallengeResponse, Method } from "@/features/mfa/types";
+import { PasskeyOfferStep } from "@/features/passkeys/components/passkey-offer-step";
 import { signInWithPasskey } from "@/features/passkeys/login";
 import { RegistrationExperience } from "@/features/registration/components/registration-experience";
 import { api } from "./api";
@@ -41,6 +42,7 @@ export function AuthExperience() {
   const [selectedMethod, setSelectedMethod] = useState<Method>();
   const [username, setUsername] = useState("");
   const [registration, setRegistration] = useState(false);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
   const [error, setError] = useState<string>();
   const initialized = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -112,6 +114,17 @@ export function AuthExperience() {
     return () => controller.abort();
   }, [init, registration, flowState.value, send, autofillAttempt]);
 
+  const authenticatePasskey = async (email: string) => {
+    if (!init) return;
+    setPasskeyBusy(true);
+    try {
+      await signInWithPasskey(init, false, new AbortController().signal, email);
+      send({ type: "PASSKEY_VERIFIED" });
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
   const stopAutofill = async () => {
     const pending = conditional.current;
     pending?.controller.abort();
@@ -174,21 +187,21 @@ export function AuthExperience() {
               setError(undefined);
               await stopAutofill();
               try {
-                const result = await api<{ nextAction: string }>(
+                const result = await api<{
+                  nextAction: string;
+                  passkeyAvailable?: boolean;
+                }>(
                   "/api/auth/registration/identify",
                   { contextId: init.contextId, email: value },
                   init.csrfToken,
                 );
                 setUsername(value);
+                setPasskeyAvailable(
+                  result.passkeyAvailable === true &&
+                    init.methods.includes("PASSKEY"),
+                );
                 if (result.nextAction === "ENTER_PASSKEY") {
-                  setPasskeyBusy(true);
-                  await signInWithPasskey(
-                    init,
-                    false,
-                    new AbortController().signal,
-                    value,
-                  );
-                  send({ type: "PASSKEY_VERIFIED" });
+                  await authenticatePasskey(value);
                 } else if (result.nextAction === "VERIFY_EMAIL")
                   setRegistration(true);
                 else send({ type: "IDENTIFIER_ACCEPTED" });
@@ -199,8 +212,6 @@ export function AuthExperience() {
                     : "Could not continue.",
                 );
                 setAutofillAttempt((value) => value + 1);
-              } finally {
-                setPasskeyBusy(false);
               }
             }}
           />
@@ -209,6 +220,23 @@ export function AuthExperience() {
           <PasswordStep
             username={username}
             error={error}
+            passkeyBusy={passkeyBusy}
+            onPasskey={
+              passkeyAvailable
+                ? async () => {
+                    setError(undefined);
+                    try {
+                      await authenticatePasskey(username);
+                    } catch (reason) {
+                      setError(
+                        reason instanceof Error
+                          ? reason.message
+                          : "Passkey sign in failed.",
+                      );
+                    }
+                  }
+                : undefined
+            }
             onCancel={cancel}
             onChangeIdentifier={() => {
               setError(undefined);
@@ -267,12 +295,19 @@ export function AuthExperience() {
               setError(undefined);
               send({ type: "VERIFYING" });
               try {
-                await api(
+                const result = await api<{
+                  nextAction: { type: "COMPLETE" | "OFFER_PASSKEY" };
+                }>(
                   "/api/auth/mfa/verify",
                   { code, contextId: init.contextId },
                   init.csrfToken,
                 );
-                send({ type: "VERIFIED" });
+                send({
+                  type:
+                    result.nextAction.type === "OFFER_PASSKEY"
+                      ? "OFFER_PASSKEY"
+                      : "VERIFIED",
+                });
               } catch (reason) {
                 setError(
                   reason instanceof Error
@@ -285,6 +320,12 @@ export function AuthExperience() {
           />
         )}
         {flowState.matches("verifying") && <VerifyingStep />}
+        {flowState.matches("passkeyOffer") && init && (
+          <PasskeyOfferStep
+            init={init}
+            onComplete={() => send({ type: "VERIFIED" })}
+          />
+        )}
         {flowState.matches("complete") && <CompleteStep />}
       </AuthCard>
     </main>

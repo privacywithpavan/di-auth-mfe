@@ -72,6 +72,7 @@ test("registers a password account and signs back in with password and MFA", asy
   await continueButton.click();
   await frame.getByLabel(otp).fill(account.code);
   await continueButton.click();
+  await frame.getByRole("button", { name: "Skip for now" }).click();
   await expect(page.getByRole("status")).toHaveText(
     "Signed in as Password Tester",
   );

@@ -20,6 +20,8 @@ export function PasswordStep({
   onCancel,
   onChangeIdentifier,
   onResetPassword,
+  passkeyBusy,
+  onPasskey,
   error,
 }: {
   username: string;
@@ -27,6 +29,8 @@ export function PasswordStep({
   onCancel: () => Promise<void>;
   onChangeIdentifier: () => void;
   onResetPassword: () => void;
+  passkeyBusy: boolean;
+  onPasskey?: () => Promise<void>;
   onSubmit: (values: PasswordValues) => Promise<void>;
 }) {
   const passwordId = useId();
@@ -50,6 +54,7 @@ export function PasswordStep({
             type="button"
             variant="link"
             size="link"
+            disabled={passkeyBusy || isSubmitting}
             onClick={onChangeIdentifier}
           >
             Change
@@ -57,7 +62,12 @@ export function PasswordStep({
         </div>
       </div>
       {error && <ErrorNotice message={error} />}
-      <AuthForm onSubmit={handleSubmit(onSubmit)} noValidate>
+      <AuthForm
+        onSubmit={handleSubmit((values) => {
+          if (!passkeyBusy) return onSubmit(values);
+        })}
+        noValidate
+      >
         <PasswordLabel
           htmlFor={passwordId}
           visible={showPassword}
@@ -83,15 +93,34 @@ export function PasswordStep({
         >
           Create or reset password
         </Button>
+        {onPasskey && (
+          <Button
+            type="button"
+            variant="link"
+            size="link"
+            className="mt-0.5"
+            disabled={passkeyBusy || isSubmitting}
+            onClick={() => void onPasskey()}
+          >
+            {passkeyBusy
+              ? "Signing in with a passkey…"
+              : "Sign in with a passkey"}
+          </Button>
+        )}
         <FormActions>
           <Button
             variant="outline"
             type="button"
+            disabled={passkeyBusy || isSubmitting}
             onClick={() => void onCancel()}
           >
             Cancel
           </Button>
-          <Button variant="default" type="submit" disabled={isSubmitting}>
+          <Button
+            variant="default"
+            type="submit"
+            disabled={isSubmitting || passkeyBusy}
+          >
             {isSubmitting ? "Checking…" : "Continue"}
           </Button>
         </FormActions>

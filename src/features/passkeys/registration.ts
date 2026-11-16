@@ -22,10 +22,13 @@ function encode(value: ArrayBuffer): string {
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 }
-export async function createPasskey(options: CreationOptions) {
+export async function createPasskey(
+  options: CreationOptions,
+  alternative = "choose password",
+) {
   if (!window.PublicKeyCredential || !navigator.credentials?.create)
     throw new Error(
-      "This browser does not support passkeys. Choose password or use a browser that supports passkeys.",
+      `This browser does not support passkeys. You can ${alternative}.`,
     );
   try {
     const credential = (await navigator.credentials.create({
@@ -41,7 +44,7 @@ export async function createPasskey(options: CreationOptions) {
     })) as PublicKeyCredential | null;
     if (!credential)
       throw new Error(
-        "Passkey creation was cancelled. Try again or choose password.",
+        `Passkey creation was cancelled. Try again or ${alternative}.`,
       );
     const response = credential.response as AuthenticatorAttestationResponse;
     return {
@@ -59,7 +62,7 @@ export async function createPasskey(options: CreationOptions) {
   } catch (error) {
     if (error instanceof DOMException && error.name === "NotAllowedError")
       throw new Error(
-        "Passkey creation was cancelled or timed out. Try again or choose password.",
+        `Passkey creation was cancelled or timed out. Try again or ${alternative}.`,
       );
     throw error;
   }

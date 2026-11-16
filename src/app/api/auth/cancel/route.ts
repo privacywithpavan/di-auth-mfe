@@ -18,6 +18,7 @@ export async function POST(request: Request) {
         "PASSWORD",
         "MFA_METHOD",
         "OTP",
+        "PASSKEY_OFFER",
         "REG_EMAIL",
         "REG_PROFILE",
         "REG_PASSKEY",

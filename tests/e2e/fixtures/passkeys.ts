@@ -30,10 +30,9 @@ type RegisteredAccount = {
   subject: string;
   name: string;
   userId: string;
-} & (
-  | { method: "PASSKEY"; credential: WebAuthnCredential }
-  | { method: "PASSWORD"; salt: Buffer; hash: Buffer }
-);
+  password?: { salt: Buffer; hash: Buffer };
+  credential?: WebAuthnCredential;
+};
 
 type Enrollment = {
   email: string;
@@ -46,6 +45,7 @@ type Enrollment = {
 export type AccountFlow = {
   enrollment?: Enrollment;
   assertion?: { challenge: string; email?: string };
+  passkeyEnrollment?: { challenge: string; expiresAt: number };
 };
 
 const invalidTransition = {
@@ -61,17 +61,112 @@ const next = (type: string) => ({ status: 200, body: { nextAction: type } });
 export function createAccountFlows({
   mfeOrigin,
   parentOrigin,
-  demoEmail,
+  demoAccounts,
   code,
 }: {
   mfeOrigin: string;
   parentOrigin: () => string;
-  demoEmail: string;
+  demoAccounts: { email: string; name: string; password: string }[];
   code: string;
 }) {
   const rpID = new URL(mfeOrigin).hostname;
   const accounts = new Map<string, RegisteredAccount>();
   const passkeyOwners = new Map<string, string>();
+  for (const demo of demoAccounts) {
+    const salt = randomBytes(16);
+    accounts.set(demo.email, {
+      subject: randomUUID(),
+      name: demo.name,
+      userId: randomBytes(32).toString("base64url"),
+      password: { salt, hash: scryptSync(demo.password, salt, 32) },
+    });
+  }
+
+  function canEnroll(email: string) {
+    const account = accounts.get(email);
+    return Boolean(account?.password && !account.credential);
+  }
+
+  function requestRegistration(
+    email: string,
+    name: string,
+    userID: Uint8Array<ArrayBuffer>,
+  ) {
+    return generateRegistrationOptions({
+      rpName: "DI Auth Playwright",
+      rpID,
+      userID,
+      userName: email,
+      userDisplayName: name,
+      authenticatorSelection: {
+        residentKey: "required",
+        userVerification: "required",
+      },
+      attestationType: "none",
+    });
+  }
+
+  async function verifiedCredential(
+    input: Record<string, unknown>,
+    challenge: string,
+  ) {
+    try {
+      const response = input.credential as RegistrationResponseJSON;
+      const data = JSON.parse(
+        Buffer.from(response.response.clientDataJSON, "base64url").toString(
+          "utf8",
+        ),
+      );
+      if (data.crossOrigin !== true || data.topOrigin !== parentOrigin())
+        return;
+      const result = await verifyRegistrationResponse({
+        response,
+        expectedChallenge: challenge,
+        expectedOrigin: mfeOrigin,
+        expectedRPID: rpID,
+        requireUserVerification: true,
+      });
+      return result.verified ? result.registrationInfo?.credential : undefined;
+    } catch {
+      return;
+    }
+  }
+
+  async function enrollPasskey(
+    flow: AccountFlow,
+    email: string,
+    action: "options" | "verify" | "skip",
+    input: Record<string, unknown>,
+  ) {
+    if (action === "skip") {
+      flow.passkeyEnrollment = undefined;
+      return next("ISSUE_SESSION");
+    }
+    const account = accounts.get(email);
+    if (!account?.password || account.credential) return invalidTransition;
+    if (action === "options") {
+      const publicKey = await requestRegistration(
+        email,
+        account.name,
+        new Uint8Array(Buffer.from(account.userId, "base64url")),
+      );
+      flow.passkeyEnrollment = {
+        challenge: publicKey.challenge,
+        expiresAt: Date.now() + 120_000,
+      };
+      return { status: 200, body: { publicKey } };
+    }
+    const pending = flow.passkeyEnrollment;
+    flow.passkeyEnrollment = undefined;
+    if (!pending || pending.expiresAt <= Date.now())
+      return { status: 409, body: { code: "PASSKEY_CHALLENGE_INVALID" } };
+    const credential = await verifiedCredential(input, pending.challenge);
+    if (!credential || passkeyOwners.has(credential.id) || account.credential)
+      return invalidPasskey;
+    account.credential = credential;
+    passkeyOwners.set(credential.id, email);
+    return next("ISSUE_SESSION");
+  }
 
   function passwordPrincipal(
     email: unknown,
@@ -80,10 +175,10 @@ export function createAccountFlows({
     if (typeof email !== "string" || typeof password !== "string") return;
     const user = accounts.get(email.trim().toLowerCase());
     if (
-      user?.method === "PASSWORD" &&
+      user?.password &&
       timingSafeEqual(
-        scryptSync(password, user.salt, user.hash.length),
-        user.hash,
+        scryptSync(password, user.password.salt, user.password.hash.length),
+        user.password.hash,
       )
     )
       return { subject: user.subject, name: user.name, amr: ["pwd", "otp"] };
@@ -98,12 +193,16 @@ export function createAccountFlows({
     if (action === "identify") {
       if (typeof input.email !== "string") return invalidTransition;
       const email = input.email.trim().toLowerCase();
-      if (email === demoEmail) return next("ENTER_PASSWORD");
       const existing = accounts.get(email);
-      if (existing)
-        return next(
-          existing.method === "PASSKEY" ? "ENTER_PASSKEY" : "ENTER_PASSWORD",
-        );
+      if (existing) {
+        const nextAction = existing.password
+          ? "ENTER_PASSWORD"
+          : "ENTER_PASSKEY";
+        return {
+          status: 200,
+          body: { nextAction, passkeyAvailable: Boolean(existing.credential) },
+        };
+      }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return invalidTransition;
       flow.enrollment = { email, stage: "VERIFY_EMAIL" };
       return next("VERIFY_EMAIL");
@@ -160,18 +259,11 @@ export function createAccountFlows({
       case "passkey-options": {
         const profile = pending.profile;
         if (pending.stage !== "PASSKEY" || profile?.method !== "PASSKEY") break;
-        const publicKey = await generateRegistrationOptions({
-          rpName: "DI Auth Playwright",
-          rpID,
-          userID: profile.userId,
-          userName: pending.email,
-          userDisplayName: profile.name,
-          authenticatorSelection: {
-            residentKey: "required",
-            userVerification: "required",
-          },
-          attestationType: "none",
-        });
+        const publicKey = await requestRegistration(
+          pending.email,
+          profile.name,
+          profile.userId,
+        );
         pending.challenge = publicKey.challenge;
         return { status: 200, body: { publicKey } };
       }
@@ -185,33 +277,11 @@ export function createAccountFlows({
         )
           break;
         pending.challenge = undefined;
-        try {
-          const response = input.credential as RegistrationResponseJSON;
-          const clientData = JSON.parse(
-            Buffer.from(response.response.clientDataJSON, "base64url").toString(
-              "utf8",
-            ),
-          );
-          if (
-            clientData.crossOrigin !== true ||
-            clientData.topOrigin !== parentOrigin()
-          )
-            return invalidPasskey;
-          const result = await verifyRegistrationResponse({
-            response,
-            expectedChallenge: challenge,
-            expectedOrigin: mfeOrigin,
-            expectedRPID: rpID,
-            requireUserVerification: true,
-          });
-          if (!result.verified || !result.registrationInfo)
-            return invalidPasskey;
-          pending.credential = result.registrationInfo.credential;
-          pending.stage = profile.phone ? "PHONE" : "CONSENT";
-          return next(pending.stage);
-        } catch {
-          return invalidPasskey;
-        }
+        const credential = await verifiedCredential(input, challenge);
+        if (!credential) return invalidPasskey;
+        pending.credential = credential;
+        pending.stage = profile.phone ? "PHONE" : "CONSENT";
+        return next(pending.stage);
       }
       case "verify-phone":
       case "skip-phone":
@@ -239,16 +309,13 @@ export function createAccountFlows({
             return invalidPasskey;
           accounts.set(pending.email, {
             ...identity,
-            method: "PASSKEY",
             credential: pending.credential,
           });
           passkeyOwners.set(pending.credential.id, pending.email);
         } else {
           accounts.set(pending.email, {
             ...identity,
-            method: "PASSWORD",
-            hash: profile.hash,
-            salt: profile.salt,
+            password: { salt: profile.salt, hash: profile.hash },
           });
         }
         flow.enrollment = undefined;
@@ -276,15 +343,14 @@ export function createAccountFlows({
           ? input.email.trim().toLowerCase()
           : undefined;
       const owner = email ? accounts.get(email) : undefined;
-      if (input.conditional !== true && owner?.method !== "PASSKEY")
+      if (input.conditional !== true && !owner?.credential)
         return invalidPasskey;
       const publicKey = await generateAuthenticationOptions({
         rpID,
         userVerification: "required",
-        allowCredentials:
-          owner?.method === "PASSKEY"
-            ? [{ id: owner.credential.id }]
-            : undefined,
+        allowCredentials: owner?.credential
+          ? [{ id: owner.credential.id }]
+          : undefined,
       });
       flow.assertion = { challenge: publicKey.challenge, email };
       return { status: 200, body: { publicKey } };
@@ -297,7 +363,7 @@ export function createAccountFlows({
       const email = passkeyOwners.get(response.id);
       const owner = email ? accounts.get(email) : undefined;
       if (
-        owner?.method !== "PASSKEY" ||
+        !owner?.credential ||
         (pending.email && pending.email !== email) ||
         (response.response.userHandle &&
           response.response.userHandle !== owner.userId)
@@ -327,5 +393,5 @@ export function createAccountFlows({
     }
   }
 
-  return { passwordPrincipal, registration, passkey };
+  return { canEnroll, enrollPasskey, passwordPrincipal, registration, passkey };
 }

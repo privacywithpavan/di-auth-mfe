@@ -16,6 +16,11 @@ export const account = {
   code: "381649",
   name: "Test User",
 };
+export const skipPasskeyAccount = {
+  ...account,
+  email: "playwright-skip@example.test",
+  name: "Skip Test",
+};
 export const subscriber = {
   id: "playwright-fixture",
   secret: "local-fixture-subscriber-secret",
@@ -38,12 +43,14 @@ type GatewayContext = AccountFlow & {
     | "ENTER_PASSWORD"
     | "SELECT_MFA_METHOD"
     | "ENTER_OTP"
+    | "OFFER_PASSKEY"
     | "ISSUE_SESSION"
     | "COMPLETE"
     | "CANCELLED";
   challenge?: { id: string; code: string; expiresAt: number };
   challengeSequence?: number;
   principal?: Principal;
+  passwordEmail?: string;
   session?: { key: string; token: string };
 };
 
@@ -64,7 +71,7 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
   const accounts = createAccountFlows({
     mfeOrigin,
     parentOrigin: () => parentOrigin,
-    demoEmail: account.email,
+    demoAccounts: [account, skipPasskeyAccount],
     code: account.code,
   });
 
@@ -177,19 +184,16 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
       case "password": {
         if (context.nextAction !== "ENTER_PASSWORD") break;
         const input = await body(request);
-        const principal =
-          input.username === account.email &&
-          input.password === account.password
-            ? {
-                subject: "playwright-test-user",
-                name: account.name,
-                amr: ["pwd", "otp"],
-              }
-            : accounts.passwordPrincipal(input.username, input.password);
+        if (typeof input.username !== "string") break;
+        const principal = accounts.passwordPrincipal(
+          input.username,
+          input.password,
+        );
         if (!principal) {
           return json(response, 401, { code: "INVALID_CREDENTIALS" });
         }
         context.principal = principal;
+        context.passwordEmail = input.username.trim().toLowerCase();
         context.nextAction = "SELECT_MFA_METHOD";
         return json(response, 200, {
           ...publicContext,
@@ -235,12 +239,45 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
           return json(response, 401, { code: "INVALID_OTP" });
         }
         context.status = "AUTHENTICATED";
-        context.nextAction = "ISSUE_SESSION";
+        context.nextAction =
+          input.offerPasskey === true &&
+          passkeysEnabled &&
+          context.passwordEmail &&
+          accounts.canEnroll(context.passwordEmail)
+            ? "OFFER_PASSKEY"
+            : "ISSUE_SESSION";
         return json(response, 200, {
           ...publicContext,
           status: context.status,
           nextAction: context.nextAction,
         });
+      }
+      case "passkey/enrollment/options":
+      case "passkey/enrollment/verify":
+      case "passkey/enrollment/skip": {
+        if (context.nextAction !== "OFFER_PASSKEY" || !context.passwordEmail)
+          break;
+        const operation =
+          action === "passkey/enrollment/options"
+            ? "options"
+            : action === "passkey/enrollment/verify"
+              ? "verify"
+              : "skip";
+        const input = await body(request);
+        const result = await accounts.enrollPasskey(
+          context,
+          context.passwordEmail,
+          operation,
+          input,
+        );
+        if (result.status === 200 && operation !== "options") {
+          context.nextAction = "ISSUE_SESSION";
+          return json(response, 200, {
+            ...publicContext,
+            nextAction: context.nextAction,
+          });
+        }
+        return json(response, result.status, result.body);
       }
       case "sessions": {
         if (typeof key !== "string") break;
@@ -273,7 +310,11 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
         });
       }
       case "cancel":
-        if (context.status !== "ACTIVE") break;
+        if (
+          context.status !== "ACTIVE" &&
+          context.nextAction !== "OFFER_PASSKEY"
+        )
+          break;
         context.status = "CANCELLED";
         context.nextAction = "CANCELLED";
         response.writeHead(204).end();

@@ -3,6 +3,7 @@ export type NextAction =
   | "ENTER_PASSWORD"
   | "SELECT_MFA_METHOD"
   | "ENTER_OTP"
+  | "OFFER_PASSKEY"
   | "ISSUE_SESSION"
   | "COMPLETE"
   | "CANCELLED";
@@ -135,7 +136,7 @@ export class IamClient {
 
   async verifyMfa(
     contextId: string,
-    input: { challengeId: string; code: string },
+    input: { challengeId: string; code: string; offerPasskey?: true },
     idempotencyKey: string,
   ): Promise<AuthenticationContext> {
     return this.request(
@@ -145,6 +146,20 @@ export class IamClient {
         body: JSON.stringify(input),
         idempotencyKey,
       },
+    );
+  }
+
+  async enrollPasskey<Action extends "options" | "verify" | "skip">(
+    contextId: string,
+    action: Action,
+    input: object,
+    idempotencyKey: string,
+  ): Promise<
+    Action extends "options" ? { publicKey: unknown } : AuthenticationContext
+  > {
+    return this.request(
+      `/internal/authentication/contexts/${contextId}/passkey/enrollment/${action}`,
+      { method: "POST", body: JSON.stringify(input), idempotencyKey },
     );
   }
 

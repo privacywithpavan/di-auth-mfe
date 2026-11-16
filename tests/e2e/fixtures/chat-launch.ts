@@ -51,15 +51,18 @@ export async function reachMfa(
   page: Page,
   hostOrigin: string,
   mfeOrigin: string,
+  credentials = account,
 ) {
   const frame = await launch(page, hostOrigin, mfeOrigin);
   const continueButton = frame.getByRole("button", {
     name: "Continue",
     exact: true,
   });
-  await frame.getByLabel(identifier).fill(account.email);
+  await frame.getByLabel(identifier).fill(credentials.email);
   await continueButton.click();
-  await frame.getByLabel("Password", { exact: true }).fill(account.password);
+  await frame
+    .getByLabel("Password", { exact: true })
+    .fill(credentials.password);
   await continueButton.click();
   await expect(frame.getByLabel(otp)).toBeVisible();
   return frame;

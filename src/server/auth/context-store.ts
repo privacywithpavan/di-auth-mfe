@@ -10,6 +10,7 @@ export type ContextStage =
   | "PASSWORD"
   | "MFA_METHOD"
   | "OTP"
+  | "PASSKEY_OFFER"
   | "COMPLETED"
   | "CANCELLED"
   | "REG_EMAIL"

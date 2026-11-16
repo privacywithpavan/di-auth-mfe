@@ -8,6 +8,7 @@ type FlowEvent =
   | { type: "BACK" }
   | { type: "VERIFYING" }
   | { type: "VERIFY_FAILED" }
+  | { type: "OFFER_PASSKEY" }
   | { type: "VERIFIED" }
   | { type: "RESTART" };
 
@@ -25,12 +26,23 @@ export const flowMachine = createMachine({
       },
     },
     password: {
-      on: { CHALLENGE_CREATED: "otp", BACK: "identifier", RESTART: "starting" },
+      on: {
+        CHALLENGE_CREATED: "otp",
+        PASSKEY_VERIFIED: "complete",
+        BACK: "identifier",
+        RESTART: "starting",
+      },
     },
     otp: { on: { VERIFYING: "verifying", RESTART: "starting" } },
     verifying: {
-      on: { VERIFIED: "complete", VERIFY_FAILED: "otp", RESTART: "starting" },
+      on: {
+        VERIFIED: "complete",
+        OFFER_PASSKEY: "passkeyOffer",
+        VERIFY_FAILED: "otp",
+        RESTART: "starting",
+      },
     },
+    passkeyOffer: { on: { VERIFIED: "complete" } },
     complete: { type: "final" },
   },
 });

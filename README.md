@@ -113,9 +113,13 @@ protected shared Redis instance.
    Its internal `gatewayContextId` stays server-side.
 6. Identification selects password sign-in, passkey sign-in, or registration.
    Credential and factor decisions are obtained through the REST adapter.
-7. After session issuance is authorized, the BFF verifies the session JWT and
-   delivers it through the configured HttpOnly cookie.
-8. The UI emits `IAM_AUTH_COMPLETE`. Resize and cancellation notifications use
+7. After password and OTP verification, IAM can offer passkey enrollment to an
+   account without a passkey when the registered client permits passkeys. The
+   user can add a passkey to the existing account or choose **Skip for now**.
+8. Once IAM authorizes session issuance, the BFF verifies the session JWT and
+   delivers it through the configured HttpOnly cookie. Adding a passkey keeps
+   the password and OTP assurance for this sign-in.
+9. The UI emits `IAM_AUTH_COMPLETE`. Resize and cancellation notifications use
    `IAM_AUTH_RESIZE` and `IAM_AUTH_CANCELLED`.
 
 Browser messages use `version: 1` and the original `state`. Completion may include
@@ -123,6 +127,14 @@ Browser messages use `version: 1` and the original `state`. Completion may inclu
 tokens and do not themselves establish an authenticated session. See
 [embedding initialization](src/features/host-bridge/initialize-context.ts) and
 [AuthExperience](src/features/authentication-flow/auth-experience.tsx).
+
+The REST adapter opts in to the enrollment offer with `offerPasskey: true`
+on MFA verification when client policy permits passkeys. IAM returns
+`OFFER_PASSKEY` for eligible accounts. Under that gateway context,
+`passkey/enrollment/options` returns public creation options and
+`passkey/enrollment/verify` or `passkey/enrollment/skip` advances the
+context to `ISSUE_SESSION`. Accounts with both sign-in methods can choose
+**Sign in with a passkey** from the password step.
 
 Passkey operations use the browser's native WebAuthn APIs. They require a secure
 context or localhost, a matching relying-party ID and application origin, and
@@ -138,7 +150,10 @@ embedded. Browser/OS prompts are native.
 | POST | `/api/auth/contexts` | Create a browser-bound attempt using `clientId` and `state` |
 | POST | `/api/auth/password` | Verify password through the authentication API and create the initial MFA challenge |
 | POST | `/api/auth/mfa/challenge` | Resend/create a challenge or switch permitted delivery method |
-| POST | `/api/auth/mfa/verify` | Verify OTP through the authentication API and complete session issuance |
+| POST | `/api/auth/mfa/verify` | Verify OTP and complete sign-in or return `OFFER_PASSKEY` |
+| POST | `/api/auth/passkey/enrollment/options` | Prepare a passkey for the existing account after password and OTP |
+| POST | `/api/auth/passkey/enrollment/verify` | Verify and save the passkey, then issue the session |
+| POST | `/api/auth/passkey/enrollment/skip` | Decline the offer and issue the session |
 | POST | `/api/auth/passkey/options` | Prepare passkey sign-in |
 | POST | `/api/auth/passkey/verify` | Verify passkey sign-in through the authentication API and issue the session |
 | POST | `/api/auth/registration/identify` | Select existing-user login or begin registration |
@@ -245,9 +260,11 @@ you to click **Sign in or create an account**. Enter
 verification code `381649` for password sign-in. MFA codes expire after
 60 seconds in the fixture. Each MFA resend replaces the previous code and
 increments the test value, starting with `381650` for the first resend.
-Registration email verification uses `381649`.
+Registration email verification uses `381649`. After password and OTP,
+choose **Add a Passkey** or **Skip for now** on the **Protect your account**
+screen. Run `pnpm test:e2e:headed passkey.spec.ts` to watch both choices.
 
-To try a passkey, use a fresh test email such as `passkey-demo@example.test`
+To try passkey registration, use a fresh test email such as `passkey-demo@example.test`
 and verify it with `381649`. Enter a name, leave Passkey selected, and continue
 to open the native prompt. Complete the account form, log out using the header
 arrow, then sign in again with the same email and passkey. Manual mode uses the
@@ -277,7 +294,7 @@ any MFE HTTP routes. Automated coverage includes the following flows.
 | --- | --- |
 | Password and MFA | Sign-in, incorrect-password recovery, invalid OTP, resend countdown, replacement-code rejection, expired-code rejection, and recovery |
 | Registration | Password and passkey enrollment, then sign-in with the created credential |
-| Passkeys | Virtual-authenticator enrollment and assertion verification, including rejection of an altered signature |
+| Passkeys | Existing-account enrollment and skip after password and OTP, later sign-in with either method, and rejection of an altered assertion |
 | Context security | Missing or incorrect CSRF/Origin, another browser's context, missing browser-binding cookie, reused state, premature MFA, and unknown, expired, cancelled, or completed contexts |
 | Chat and session | Launch on click, blocked framing, direct-navigation rejection, cancellation, session recognition after reload, and logout |
 
