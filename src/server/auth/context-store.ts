@@ -28,6 +28,11 @@ export interface AuthContext {
   confirmedFactors: string[];
   browserBindingHash: string;
   stage: ContextStage;
+  sessionCompletion?: {
+    keyHash: string;
+    expiresAt: number;
+    sessionHash?: string;
+  };
   challengeId?: string;
   method?: MfaMethod;
   createdAt: number;

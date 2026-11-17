@@ -8,7 +8,13 @@ import {
   reachMfa,
 } from "./fixtures/chat-launch";
 import { test } from "./fixtures/environment";
-import { account, clientId, skipPasskeyAccount } from "./fixtures/iam";
+import {
+  account,
+  clientId,
+  recoveryPasskeyAccount,
+  sessionCookie,
+  skipPasskeyAccount,
+} from "./fixtures/iam";
 
 test.use({ passkeysEnabled: true });
 
@@ -229,4 +235,119 @@ test("skips adding a passkey and finishes password sign-in", async ({
   await frame.getByLabel(otp).fill(account.code);
   await continueButton.click();
   await expect(skip).toBeVisible();
+});
+
+test("recovers a dropped enrollment response without creating another passkey or session", async ({
+  browser,
+  page,
+  context,
+  environment,
+}) => {
+  test.setTimeout(90_000);
+  const { cdp, authenticatorId } = await virtualAuthenticator(context, page);
+  const frame = await reachMfa(
+    page,
+    environment.hostOrigin,
+    environment.mfeOrigin,
+    recoveryPasskeyAccount,
+  );
+  await frame.getByLabel(otp).fill(account.code);
+  await frame.getByRole("button", { name: "Continue", exact: true }).click();
+  const add = frame.getByRole("button", { name: "Add a Passkey" });
+  await expect(add).toBeEnabled();
+
+  const before = environment.completionCounts();
+  const endpoint = `${environment.mfeOrigin}/api/auth/passkey/enrollment`;
+  let lostResponse: { status: number; issuedCookie: boolean } | undefined;
+  let completion: { contextId: string; completionId: string } | undefined;
+  await page.route(
+    `${endpoint}/verify`,
+    async (route) => {
+      try {
+        const request = route.request();
+        const { contextId, completionId } = request.postDataJSON();
+        completion = { contextId, completionId };
+        // Node forwards the request without applying Set-Cookie to Chromium's cookie store.
+        const headers = await request.allHeaders();
+        const response = await fetch(request.url(), {
+          method: request.method(),
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: headers.cookie,
+            Origin: headers.origin,
+            "X-CSRF-Token": headers["x-csrf-token"],
+          },
+          body: request.postData(),
+          signal: AbortSignal.timeout(20_000),
+        });
+        lostResponse = {
+          status: response.status,
+          issuedCookie: response.headers
+            .getSetCookie()
+            .some((cookie) => cookie.startsWith(`${sessionCookie}=`)),
+        };
+        await response.arrayBuffer();
+      } finally {
+        await route.abort();
+      }
+    },
+    { times: 1 },
+  );
+
+  await add.click();
+  const retry = frame.getByRole("button", { name: "Retry sign-in" });
+  await expect(retry).toBeEnabled();
+  expect(lostResponse).toEqual({ status: 200, issuedCookie: true });
+  const committed = {
+    passkeyEnrollments: before.passkeyEnrollments + 1,
+    sessionsIssued: before.sessionsIssued + 1,
+  };
+  expect(environment.completionCounts()).toEqual(committed);
+  const status = page.getByRole("status");
+  await expect(status).toHaveText("Signed out");
+  expect(
+    (await context.cookies(environment.hostOrigin)).some(
+      ({ name }) => name === sessionCookie,
+    ),
+  ).toBe(false);
+  if (!completion)
+    throw new Error("The interrupted request did not have a completion ID.");
+
+  const otherBrowser = await browser.newContext();
+  try {
+    const bootstrap = await otherBrowser.request.get(
+      `${environment.mfeOrigin}/api/auth/bootstrap?clientId=${clientId}`,
+    );
+    expect(bootstrap.ok()).toBe(true);
+    const { csrfToken } = await bootstrap.json();
+    const denied = await otherBrowser.request.post(`${endpoint}/resume`, {
+      headers: { Origin: environment.mfeOrigin, "X-CSRF-Token": csrfToken },
+      data: completion,
+    });
+    expect(denied.status()).toBe(403);
+    expect(await denied.json()).toMatchObject({
+      code: "BROWSER_BINDING_MISMATCH",
+    });
+  } finally {
+    await otherBrowser.close();
+  }
+
+  await retry.click();
+  await expect(status).toHaveText(
+    `Signed in as ${recoveryPasskeyAccount.name}`,
+  );
+  await expect(page.locator(iframe)).toHaveCount(0);
+  expect(environment.completionCounts()).toEqual(committed);
+  const { credentials } = await cdp.send("WebAuthn.getCredentials", {
+    authenticatorId,
+  });
+  expect(credentials).toHaveLength(1);
+  const session = await page.request.get(
+    `${environment.mfeOrigin}/api/auth/session?clientId=${clientId}`,
+  );
+  expect(session.ok()).toBe(true);
+  expect(await session.json()).toMatchObject({
+    authenticated: true,
+    amr: ["pwd", "otp"],
+  });
 });

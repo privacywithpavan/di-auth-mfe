@@ -1,3 +1,14 @@
+export class AuthApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string | undefined,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AuthApiError";
+  }
+}
+
 export async function api<T>(
   path: string,
   body: object,
@@ -12,8 +23,15 @@ export async function api<T>(
     },
     body: JSON.stringify(body),
   });
-  const result = (await response.json()) as T & { message?: string };
+  const result = (await response.json()) as T & {
+    message?: string;
+    code?: string;
+  };
   if (!response.ok)
-    throw new Error(result.message ?? "Authentication could not continue.");
+    throw new AuthApiError(
+      response.status,
+      result.code,
+      result.message ?? "Authentication could not continue.",
+    );
   return result;
 }

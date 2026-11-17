@@ -40,6 +40,7 @@ type TestEnvironment = {
   mfeOrigin: string;
   hostOrigin: string;
   unapprovedOrigin: string;
+  completionCounts: Awaited<ReturnType<typeof startIam>>["completionCounts"];
   expireMfaChallenges: () => void;
   setNextContextLifetime: (milliseconds: number) => void;
 };
@@ -120,6 +121,7 @@ export const test = base.extend<
             mfeOrigin,
             hostOrigin: host.origin,
             unapprovedOrigin: unapproved.origin,
+            completionCounts: iam.completionCounts,
             expireMfaChallenges: iam.expireMfaChallenges,
             setNextContextLifetime: iam.setNextContextLifetime,
           });

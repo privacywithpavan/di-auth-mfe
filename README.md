@@ -136,6 +136,14 @@ on MFA verification when client policy permits passkeys. IAM returns
 context to `ISSUE_SESSION`. Accounts with both sign-in methods can choose
 **Sign in with a passkey** from the password step.
 
+The browser sends a fresh `completionId` with the enrollment choice. If the
+response is interrupted, **Retry sign-in** sends that ID and the original
+`contextId` to the completion route. Recovery requires the original browser
+binding, Origin and CSRF checks. Its window is at most 60 seconds and ends
+when the context expires. The retry reuses the IAM session idempotency key
+and never replays the passkey attestation. Recovery is available while the
+original iframe remains open.
+
 Passkey operations use the browser's native WebAuthn APIs. They require a secure
 context or localhost, a matching relying-party ID and application origin, and
 delegation of `publickey-credentials-get` and `publickey-credentials-create` when
@@ -154,6 +162,7 @@ embedded. Browser/OS prompts are native.
 | POST | `/api/auth/passkey/enrollment/options` | Prepare a passkey for the existing account after password and OTP |
 | POST | `/api/auth/passkey/enrollment/verify` | Verify and save the passkey, then issue the session |
 | POST | `/api/auth/passkey/enrollment/skip` | Decline the offer and issue the session |
+| POST | `/api/auth/passkey/enrollment/resume` | Finish session delivery for the same enrollment attempt and browser |
 | POST | `/api/auth/passkey/options` | Prepare passkey sign-in |
 | POST | `/api/auth/passkey/verify` | Verify passkey sign-in through the authentication API and issue the session |
 | POST | `/api/auth/registration/identify` | Select existing-user login or begin registration |

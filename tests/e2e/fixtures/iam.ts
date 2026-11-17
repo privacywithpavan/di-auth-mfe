@@ -21,6 +21,11 @@ export const skipPasskeyAccount = {
   email: "playwright-skip@example.test",
   name: "Skip Test",
 };
+export const recoveryPasskeyAccount = {
+  ...account,
+  email: "playwright-recovery@example.test",
+  name: "Recovery Test",
+};
 export const subscriber = {
   id: "playwright-fixture",
   secret: "local-fixture-subscriber-secret",
@@ -68,10 +73,12 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
   let parentOrigin: string;
   let issuer: string;
   let nextContextLifetimeMs = 300_000;
+  let passkeyEnrollments = 0;
+  let sessionsIssued = 0;
   const accounts = createAccountFlows({
     mfeOrigin,
     parentOrigin: () => parentOrigin,
-    demoAccounts: [account, skipPasskeyAccount],
+    demoAccounts: [account, skipPasskeyAccount, recoveryPasskeyAccount],
     code: account.code,
   });
 
@@ -271,6 +278,7 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
           input,
         );
         if (result.status === 200 && operation !== "options") {
+          if (operation === "verify") passkeyEnrollments++;
           context.nextAction = "ISSUE_SESSION";
           return json(response, 200, {
             ...publicContext,
@@ -300,6 +308,7 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
           .setSubject(context.principal.subject)
           .setExpirationTime("15m")
           .sign(privateKey);
+        sessionsIssued++;
         context.session = { key, token };
         context.status = "CONSUMED";
         context.nextAction = "COMPLETE";
@@ -326,6 +335,9 @@ export async function startIam(mfeOrigin: string, passkeysEnabled: boolean) {
 
   return {
     ...server,
+    completionCounts() {
+      return { passkeyEnrollments, sessionsIssued };
+    },
     expireMfaChallenges() {
       for (const context of contexts.values()) {
         if (context.challenge) context.challenge.expiresAt = Date.now() - 1;

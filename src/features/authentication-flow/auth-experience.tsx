@@ -324,6 +324,7 @@ export function AuthExperience() {
           <PasskeyOfferStep
             init={init}
             onComplete={() => send({ type: "VERIFIED" })}
+            onClose={() => post("IAM_AUTH_CANCELLED")}
           />
         )}
         {flowState.matches("complete") && <CompleteStep />}

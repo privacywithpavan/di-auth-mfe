@@ -7,11 +7,12 @@ import {
   ScanFace,
   UserRoundPlus,
 } from "lucide-react";
+import { useState } from "react";
 import { AuthButton } from "@/components/auth/auth-button";
 import { ErrorNotice } from "@/components/auth/error-notice";
 import { AuthStep } from "@/components/auth/form-layout";
 import { Card } from "@/components/ui/card";
-import { api } from "@/features/authentication-flow/api";
+import { AuthApiError, api } from "@/features/authentication-flow/api";
 import { type CreationOptions, createPasskey } from "../registration";
 
 const enrollmentPath = "/api/auth/passkey/enrollment";
@@ -24,10 +25,13 @@ const examples = [
 export function PasskeyOfferStep({
   init: { contextId, csrfToken },
   onComplete,
+  onClose,
 }: {
   init: { contextId: string; csrfToken: string };
   onComplete: () => void;
+  onClose: () => void;
 }) {
+  const [recoveryId, setRecoveryId] = useState<string>();
   const supported = Boolean(
     window.PublicKeyCredential && navigator.credentials?.create,
   );
@@ -45,12 +49,63 @@ export function PasskeyOfferStep({
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
-  const choice = useMutation({
-    mutationFn: async (action: "add" | "skip") => {
-      if (action === "skip") {
-        await api(`${enrollmentPath}/skip`, { contextId }, csrfToken);
-        return true;
+  async function finish(action: "verify" | "skip", input: object = {}) {
+    const completionId = crypto.randomUUID();
+    try {
+      await api(
+        `${enrollmentPath}/${action}`,
+        { contextId, completionId, ...input },
+        csrfToken,
+      );
+    } catch (error) {
+      if (
+        error instanceof AuthApiError &&
+        error.status < 500 &&
+        error.code !== "SESSION_COMPLETION_PENDING"
+      ) {
+        if (action === "verify") void options.refetch();
+        throw error;
       }
+      setRecoveryId(completionId);
+      throw new Error("Sign-in was interrupted. Retry sign-in to finish.");
+    }
+    return true;
+  }
+
+  const choice = useMutation({
+    mutationFn: async (action: "add" | "skip" | "resume") => {
+      if (action === "resume") {
+        try {
+          await api(
+            `${enrollmentPath}/resume`,
+            { contextId, completionId: recoveryId },
+            csrfToken,
+          );
+          return true;
+        } catch (error) {
+          if (
+            error instanceof AuthApiError &&
+            error.code === "SESSION_COMPLETION_NOT_READY"
+          ) {
+            setRecoveryId(undefined);
+            void options.refetch();
+            throw new Error(
+              "Choose Add a Passkey or Skip for now to finish signing in.",
+            );
+          }
+          if (
+            error instanceof AuthApiError &&
+            (error.code === "SESSION_COMPLETION_UNAVAILABLE" ||
+              error.code === "CONTEXT_EXPIRED")
+          ) {
+            throw new Error(
+              "This sign-in attempt has expired. Close it and start again from the chat.",
+            );
+          }
+          throw error;
+        }
+      }
+      if (action === "skip") return finish("skip");
       const publicKey = options.data?.publicKey;
       if (!publicKey || options.isError) {
         const refreshed = await options.refetch();
@@ -59,22 +114,44 @@ export function PasskeyOfferStep({
       }
 
       // Options are ready before the click so WebAuthn can use its user activation.
-      const credential = await createPasskey(publicKey, "skip for now");
-      await api(
-        `${enrollmentPath}/verify`,
-        { contextId, credential },
-        csrfToken,
+      const credential = await createPasskey(publicKey, "skip for now").catch(
+        (error) => {
+          void options.refetch();
+          throw error;
+        },
       );
-      return true;
+      return finish("verify", { credential });
     },
     onSuccess: (completed) => {
       if (completed) onComplete();
     },
-    onError: (_, action) => {
-      if (action === "add" && options.data) void options.refetch();
-    },
   });
   const error = choice.error ?? options.error;
+
+  if (recoveryId) {
+    return (
+      <AuthStep title="Finish signing in" density="compact">
+        {error && <ErrorNotice message={error.message} />}
+        <AuthButton
+          size="sm"
+          className="w-full"
+          disabled={choice.isPending}
+          onClick={() => choice.mutate("resume")}
+        >
+          {choice.isPending ? "Finishing sign-in…" : "Retry sign-in"}
+        </AuthButton>
+        <AuthButton
+          variant="ghost"
+          size="sm"
+          className="mt-2 w-full"
+          disabled={choice.isPending}
+          onClick={onClose}
+        >
+          Close sign-in
+        </AuthButton>
+      </AuthStep>
+    );
+  }
 
   return (
     <AuthStep title="Protect your account" density="compact">
