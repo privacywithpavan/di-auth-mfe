@@ -29,6 +29,9 @@ The UI and BFF are built and run together. Credential verification and signed
 session issuance use configured REST APIs; the BFF validates their responses and
 sets the browser session cookie.
 
+For a step-by-step code walkthrough with sequence diagrams, read the
+[end-to-end authentication guide](docs/end-to-end-authentication.md).
+
 ## Prerequisites
 
 - Node.js 24 is the recommended development version. The installed Next.js package
